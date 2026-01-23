@@ -9,6 +9,11 @@ add_library(csp)
 set_target_properties(csp PROPERTIES C_STANDARD 11)
 set_target_properties(csp PROPERTIES C_EXTENSIONS ON)
 
+# MSVC requires explicit C11 flag for stdatomic.h support
+if(MSVC)
+  target_compile_options(csp PRIVATE /std:c11)
+endif()
+
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release MinSizeRel)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "No build type selected, default to MinSizeRel")

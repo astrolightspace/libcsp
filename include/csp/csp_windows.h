@@ -64,4 +64,48 @@ static inline void usleep(unsigned int usec) {
     Sleep(usec / 1000);
 }
 
+/*
+ * C11 stdatomic.h compatibility for MSVC
+ * MSVC's C11 atomics support requires specific flags that may not be available.
+ * Provide a minimal implementation using Interlocked functions.
+ */
+#if defined(_MSC_VER) && !defined(__cplusplus)
+
+typedef volatile long atomic_int;
+
+#define ATOMIC_VAR_INIT(value) (value)
+
+static __inline int atomic_load(const volatile atomic_int* obj) {
+    return _InterlockedOr((volatile long*)obj, 0);
+}
+
+static __inline void atomic_store(volatile atomic_int* obj, int desired) {
+    _InterlockedExchange((volatile long*)obj, desired);
+}
+
+static __inline int atomic_exchange(volatile atomic_int* obj, int desired) {
+    return _InterlockedExchange((volatile long*)obj, desired);
+}
+
+static __inline int atomic_fetch_add(volatile atomic_int* obj, int arg) {
+    return _InterlockedExchangeAdd((volatile long*)obj, arg);
+}
+
+static __inline int atomic_fetch_sub(volatile atomic_int* obj, int arg) {
+    return _InterlockedExchangeAdd((volatile long*)obj, -arg);
+}
+
+/* Memory ordering - simplified, full barrier for all */
+#define memory_order_relaxed 0
+#define memory_order_consume 1
+#define memory_order_acquire 2
+#define memory_order_release 3
+#define memory_order_acq_rel 4
+#define memory_order_seq_cst 5
+
+#define atomic_load_explicit(obj, order) atomic_load(obj)
+#define atomic_store_explicit(obj, val, order) atomic_store(obj, val)
+
+#endif /* _MSC_VER && !__cplusplus */
+
 #endif /* _WIN32 */
