@@ -31,7 +31,9 @@
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #include <csp/interfaces/csp_if_eth.h>
 

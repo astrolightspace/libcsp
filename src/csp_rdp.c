@@ -8,7 +8,11 @@
 
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#else
 #include <endian.h>
+#endif
 
 #include <csp/csp.h>
 #include <csp/csp_debug.h>

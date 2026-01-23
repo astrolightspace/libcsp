@@ -9,6 +9,11 @@ add_library(csp)
 set_target_properties(csp PROPERTIES C_STANDARD 11)
 set_target_properties(csp PROPERTIES C_EXTENSIONS ON)
 
+# MSVC requires explicit C11 flag for stdatomic.h support
+if(MSVC)
+  target_compile_options(csp PRIVATE /std:c11)
+endif()
+
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release MinSizeRel)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "No build type selected, default to MinSizeRel")
@@ -44,6 +49,8 @@ option(CSP_HAVE_LIBUSB "Enable libusb/gs_usb support" OFF)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(CSP_POSIX 1)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  set(CSP_WINDOWS 1)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Generic")
   string(TOLOWER "${CSP_SYSTEM_NAME}" csp_system_name)
   if(csp_system_name STREQUAL "freertos")
@@ -109,6 +116,39 @@ if(CSP_POSIX AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
   endif()
 endif()
 
+# Windows-specific configuration
+if(CSP_WINDOWS)
+  find_package(Threads REQUIRED)
+
+  # Try to find libusb via vcpkg or direct path
+  if(CSP_HAVE_LIBUSB)
+    find_package(libusb CONFIG QUIET)
+    if(NOT libusb_FOUND)
+      find_package(libusb-1.0 CONFIG QUIET)
+    endif()
+    if(NOT libusb-1.0_FOUND AND NOT libusb_FOUND)
+      find_package(libusb-1.0 QUIET)
+    endif()
+    if(TARGET libusb-1.0::libusb)
+      message(STATUS "Found libusb-1.0 for Windows (libusb-1.0::libusb)")
+      set(LIBUSB_LIBRARIES libusb-1.0::libusb)
+      set(LIBUSB_FOUND TRUE)
+      # Get include dirs from the target for OBJECT library compatibility
+      get_target_property(LIBUSB_INCLUDE_DIRS libusb-1.0::libusb INTERFACE_INCLUDE_DIRECTORIES)
+    elseif(TARGET usb-1.0)
+      message(STATUS "Found libusb-1.0 for Windows (usb-1.0)")
+      set(LIBUSB_LIBRARIES usb-1.0)
+      set(LIBUSB_FOUND TRUE)
+      get_target_property(LIBUSB_INCLUDE_DIRS usb-1.0 INTERFACE_INCLUDE_DIRECTORIES)
+    elseif(LIBUSB_FOUND)
+      message(STATUS "Found libusb-1.0 for Windows (legacy)")
+    else()
+      message(WARNING "libusb-1.0 not found, gs_usb driver will not be built")
+      set(CSP_HAVE_LIBUSB OFF)
+    endif()
+  endif()
+endif()
+
 file(REAL_PATH include csp_inc)
 file(REAL_PATH src csp_inc_src)
 list(APPEND csp_inc ${CMAKE_CURRENT_BINARY_DIR}/include)
@@ -123,6 +163,9 @@ if(CSP_POSIX)
     -Wall -Wextra -Wpedantic
     -Wshadow -Wcast-align -Wpointer-arith -Wwrite-strings -Wno-unused-parameter
     $<$<C_COMPILER_ID:Clang>:-Wno-gnu-zero-variadic-macro-arguments>)
+elseif(CSP_WINDOWS AND MSVC)
+  # Enable C11 for stdatomic.h support
+  target_compile_options(csp_common INTERFACE /std:c11)
 endif()
 target_link_libraries(csp PRIVATE csp_common)
 

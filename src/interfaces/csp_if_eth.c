@@ -3,12 +3,18 @@
 #include <csp/interfaces/csp_if_eth_pbuf.h>
 #include <csp/arch/csp_time.h>
 
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#else
 #include <endian.h>
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #include <csp/csp.h>
 #include <csp/csp_id.h>

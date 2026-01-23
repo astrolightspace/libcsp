@@ -1,6 +1,10 @@
 #pragma once
 
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#else
 #include <stdatomic.h>
+#endif
 
 #include <csp/csp.h>
 #include <csp/arch/csp_queue.h>

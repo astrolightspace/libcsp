@@ -10,6 +10,9 @@
 #if (CSP_POSIX || __DOXYGEN__)
     #include <semaphore.h>
     typedef sem_t csp_bin_sem_t;
+#elif (CSP_WINDOWS)
+    #include <windows.h>
+    typedef HANDLE csp_bin_sem_t;
 #elif (CSP_FREERTOS)
     #include <FreeRTOS.h>
     #include <task.h>

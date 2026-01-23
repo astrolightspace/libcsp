@@ -3,7 +3,9 @@
 #include "csp_conn.h"
 
 #include <stdlib.h>
+#ifndef _WIN32
 #include <stdatomic.h>
+#endif
 
 #include <csp/arch/csp_queue.h>
 #include <csp/arch/csp_time.h>

@@ -5,7 +5,11 @@
 #include <csp/csp_buffer.h>
 #include <csp/csp_debug.h>
 #include "csp_macro.h"
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#else
 #include <endian.h>
+#endif
 
 #include "csp_conn.h"
 
