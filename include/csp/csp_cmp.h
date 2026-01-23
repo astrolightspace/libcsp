@@ -95,6 +95,9 @@ extern "C" {
 /**
  *  CSP management protocol description.
  */
+#ifdef _MSC_VER
+#pragma pack(push, 1)
+#endif
 struct csp_cmp_message {
 	//! CMP request type.
 	uint8_t type;
@@ -145,6 +148,9 @@ struct csp_cmp_message {
 		csp_timestamp_t clock;
 	};
 } __attribute__((__packed__));
+#ifdef _MSC_VER
+#pragma pack(pop)
+#endif
 
 /**
  *  Macro for calculating total size of management message.

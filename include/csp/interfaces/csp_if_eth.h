@@ -62,6 +62,9 @@
  * Definition of ethernet header, including reqired MAC addresses
  * Frame data is required to proceed in memory space after this struct
  */
+#ifdef _MSC_VER
+#pragma pack(push, 1)
+#endif
 typedef struct csp_eth_header_s
 {
 	uint8_t  ether_dhost[CSP_ETH_ALEN];	/* destination eth addr	*/
@@ -73,6 +76,9 @@ typedef struct csp_eth_header_s
 	uint16_t packet_length;
 	uint8_t frame_begin[];
 } __attribute__ ((__packed__)) csp_eth_header_t;
+#ifdef _MSC_VER
+#pragma pack(pop)
+#endif
 
 /**
  * Send ETH frame (implemented by driver).
