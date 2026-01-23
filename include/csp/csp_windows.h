@@ -58,10 +58,22 @@
 #define STDERR_FILENO 2
 #endif
 
+/* Prevent windows.h from defining min/max macros */
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 /* usleep equivalent */
 #include <windows.h>
 static inline void usleep(unsigned int usec) {
     Sleep(usec / 1000);
+}
+
+/* rand_r equivalent for Windows */
+static inline int rand_r(unsigned int *seed) {
+    /* Simple LCG - same constants as glibc */
+    *seed = *seed * 1103515245 + 12345;
+    return (int)((*seed / 65536) % 32768);
 }
 
 /*
@@ -71,28 +83,28 @@ static inline void usleep(unsigned int usec) {
  */
 #if defined(_MSC_VER) && !defined(__cplusplus)
 
-typedef volatile long atomic_int;
+typedef long atomic_int;
 
 #define ATOMIC_VAR_INIT(value) (value)
 
-static __inline int atomic_load(const volatile atomic_int* obj) {
-    return _InterlockedOr((volatile long*)obj, 0);
+static __inline int atomic_load(atomic_int* obj) {
+    return _InterlockedOr(obj, 0);
 }
 
-static __inline void atomic_store(volatile atomic_int* obj, int desired) {
-    _InterlockedExchange((volatile long*)obj, desired);
+static __inline void atomic_store(atomic_int* obj, int desired) {
+    _InterlockedExchange(obj, desired);
 }
 
-static __inline int atomic_exchange(volatile atomic_int* obj, int desired) {
-    return _InterlockedExchange((volatile long*)obj, desired);
+static __inline int atomic_exchange(atomic_int* obj, int desired) {
+    return _InterlockedExchange(obj, desired);
 }
 
-static __inline int atomic_fetch_add(volatile atomic_int* obj, int arg) {
-    return _InterlockedExchangeAdd((volatile long*)obj, arg);
+static __inline int atomic_fetch_add(atomic_int* obj, int arg) {
+    return _InterlockedExchangeAdd(obj, arg);
 }
 
-static __inline int atomic_fetch_sub(volatile atomic_int* obj, int arg) {
-    return _InterlockedExchangeAdd((volatile long*)obj, -arg);
+static __inline int atomic_fetch_sub(atomic_int* obj, int arg) {
+    return _InterlockedExchangeAdd(obj, -arg);
 }
 
 /* Memory ordering - simplified, full barrier for all */
@@ -106,8 +118,8 @@ static __inline int atomic_fetch_sub(volatile atomic_int* obj, int arg) {
 #define atomic_load_explicit(obj, order) atomic_load(obj)
 #define atomic_store_explicit(obj, val, order) atomic_store(obj, val)
 
-static __inline int atomic_compare_exchange_strong(volatile atomic_int* obj, int* expected, int desired) {
-    int old = _InterlockedCompareExchange((volatile long*)obj, desired, *expected);
+static __inline int atomic_compare_exchange_strong(atomic_int* obj, int* expected, int desired) {
+    int old = _InterlockedCompareExchange(obj, desired, *expected);
     if (old == *expected) {
         return 1;  /* Success */
     } else {
