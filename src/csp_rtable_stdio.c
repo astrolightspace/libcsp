@@ -1,5 +1,10 @@
 #include <stdio.h>
 #include <inttypes.h>
+#include <string.h>
+
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#endif
 
 #include <csp/csp.h>
 #include <csp/csp_debug.h>
@@ -13,8 +18,9 @@ static int csp_rtable_parse(const char * rtable, int dry_run) {
 	int valid_entries = 0;
 
 	/* Copy string before running strtok */
+	/* Use fixed size buffer - str_len is capped at 100 anyway */
+	char rtable_copy[101];
 	const size_t str_len = strnlen(rtable, 100);
-	char rtable_copy[str_len + 1];
 	strncpy(rtable_copy, rtable, str_len);
 	rtable_copy[str_len] = 0;
 

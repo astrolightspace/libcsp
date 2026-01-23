@@ -1,6 +1,7 @@
 #cmakedefine01 CSP_POSIX
 #cmakedefine01 CSP_ZEPHYR
 #cmakedefine01 CSP_FREERTOS
+#cmakedefine01 CSP_WINDOWS
 
 #cmakedefine01 CSP_HAVE_STDIO
 #cmakedefine01 CSP_ENABLE_CSP_PRINT
@@ -27,3 +28,13 @@
 #cmakedefine01 CSP_HAVE_LIBZMQ
 
 #cmakedefine01 CSP_FIXUP_V1_ZMQ_LITTLE_ENDIAN
+
+/* Platform-specific attribute macros */
+#ifdef _MSC_VER
+  /* MSVC doesn't support __attribute__, define as empty */
+  #define __packed
+  #define __attribute__(x)
+#elif !defined(__packed)
+  /* GCC/Clang */
+  #define __packed __attribute__((__packed__))
+#endif

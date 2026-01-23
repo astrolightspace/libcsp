@@ -3,7 +3,11 @@
 #include <csp/csp_crc32.h>
 #include <csp/csp_id.h>
 
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#else
 #include <endian.h>
+#endif
 
 #ifdef __AVR__
 #include <avr/pgmspace.h>

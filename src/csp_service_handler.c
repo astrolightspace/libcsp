@@ -5,7 +5,11 @@
 
 #include <csp/csp_cmp.h>
 #include <csp/csp_hooks.h>
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#else
 #include <endian.h>
+#endif
 #include <csp/csp_types.h>
 #include <csp/csp_rtable.h>
 #include <csp/csp_id.h>

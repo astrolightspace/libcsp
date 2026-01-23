@@ -3,7 +3,11 @@
 #include <stdlib.h>
 
 #include <csp/csp_crc32.h>
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#else
 #include <endian.h>
+#endif
 #include <csp/arch/csp_time.h>
 #include <csp/arch/csp_queue.h>
 #include <csp/crypto/csp_hmac.h>
