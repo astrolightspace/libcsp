@@ -106,6 +106,16 @@ static __inline int atomic_fetch_sub(volatile atomic_int* obj, int arg) {
 #define atomic_load_explicit(obj, order) atomic_load(obj)
 #define atomic_store_explicit(obj, val, order) atomic_store(obj, val)
 
+static __inline int atomic_compare_exchange_strong(volatile atomic_int* obj, int* expected, int desired) {
+    int old = _InterlockedCompareExchange((volatile long*)obj, desired, *expected);
+    if (old == *expected) {
+        return 1;  /* Success */
+    } else {
+        *expected = old;
+        return 0;  /* Failure */
+    }
+}
+
 #endif /* _MSC_VER && !__cplusplus */
 
 #endif /* _WIN32 */
