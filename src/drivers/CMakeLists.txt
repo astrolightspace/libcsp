@@ -23,3 +23,16 @@ endif()
 if(HAVE_ZEPHYR_CAN)
   target_sources(csp PRIVATE can/can_zephyr.c)
 endif()
+
+if(LIBUSB_FOUND OR CSP_HAVE_LIBUSB)
+  add_library(driver_gsusb OBJECT can/can_gsusb.c)
+  target_include_directories(driver_gsusb PRIVATE
+    ${csp_inc}
+    ${LIBUSB_INCLUDE_DIRS})
+  target_link_libraries(driver_gsusb PRIVATE csp_common
+    ${LIBUSB_LIBRARIES})
+  target_link_libraries(csp PRIVATE driver_gsusb)
+  if(BUILD_SHARED_LIBS)
+    set_property(TARGET driver_gsusb PROPERTY POSITION_INDEPENDENT_CODE ON)
+  endif()
+endif()

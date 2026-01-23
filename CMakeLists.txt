@@ -40,6 +40,7 @@ option(CSP_ENABLE_PYTHON3_BINDINGS "Build Python3 binding" OFF)
 option(CSP_BUILD_SAMPLES "Build samples and examples by default" OFF)
 
 option(CSP_FIXUP_V1_ZMQ_LITTLE_ENDIAN "Use little-endian CSP ID for ZMQ with CSPv1" ON)
+option(CSP_HAVE_LIBUSB "Enable libusb/gs_usb support" OFF)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(CSP_POSIX 1)
@@ -86,6 +87,14 @@ if(CSP_POSIX AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
       set(CSP_HAVE_LIBSOCKETCAN 1)
     else()
       message(NOTICE "No libsocketcan found")
+    endif()
+
+    pkg_search_module(LIBUSB libusb-1.0)
+    if(${LIBUSB_FOUND})
+      message(STATUS "Found ${LIBUSB_LINK_LIBRARIES} ${LIBUSB_VERSION}")
+      set(CSP_HAVE_LIBUSB 1)
+    else()
+      message(NOTICE "No libusb-1.0 found")
     endif()
 
     pkg_search_module(CHECK check)
