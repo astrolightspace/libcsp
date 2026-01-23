@@ -5,7 +5,11 @@
  *      Author: johan
  */
 
+#ifdef _WIN32
+#include <csp/csp_windows.h>
+#else
 #include <endian.h>
+#endif
 #include <csp/csp.h>
 
 /**

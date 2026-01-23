@@ -15,7 +15,11 @@
 #include <csp/csp.h>
 #include <csp/csp_debug.h>
 
+#ifdef _WIN32
+#include <libusb.h>
+#else
 #include <libusb-1.0/libusb.h>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>

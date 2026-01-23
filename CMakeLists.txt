@@ -158,6 +158,9 @@ if(CSP_POSIX)
     -Wall -Wextra -Wpedantic
     -Wshadow -Wcast-align -Wpointer-arith -Wwrite-strings -Wno-unused-parameter
     $<$<C_COMPILER_ID:Clang>:-Wno-gnu-zero-variadic-macro-arguments>)
+elseif(CSP_WINDOWS AND MSVC)
+  # Enable C11 for stdatomic.h support
+  target_compile_options(csp_common INTERFACE /std:c11)
 endif()
 target_link_libraries(csp PRIVATE csp_common)
 

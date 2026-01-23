@@ -1,6 +1,8 @@
 #include <string.h>
 #include <stdio.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #include <csp/csp_id.h>
 #include <csp/arch/csp_time.h>
