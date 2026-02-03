@@ -17,7 +17,8 @@ if(CSP_POSIX)
   target_sources(csp PRIVATE usart/usart_linux.c)
   target_sources(csp PRIVATE eth/eth_linux.c)
 elseif(CSP_WINDOWS)
-  # Windows uses gs_usb driver for CAN, no usart/eth drivers needed
+  # Windows USART driver for KISS support
+  target_sources(csp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../contrib/windows/usart_windows.c)
 elseif(CSP_ZEPHYR)
   target_sources(csp PRIVATE usart/usart_zephyr.c)
 endif()
