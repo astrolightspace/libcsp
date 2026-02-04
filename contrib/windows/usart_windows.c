@@ -53,7 +53,7 @@ static int configurePort(csp_usart_fd_t fd, const csp_usart_conf_t * conf) {
 	portSettings.BaudRate = conf->baudrate;
 	portSettings.Parity = conf->paritysetting;
 	portSettings.StopBits = conf->stopbits;
-	portSettings.fParity = conf->checkparity;
+	portSettings.fParity = (conf->paritysetting != 0) ? TRUE : FALSE;
 	portSettings.fBinary = TRUE;
 	portSettings.ByteSize = conf->databits;
 	if (!SetCommState(fd, &portSettings)) {
