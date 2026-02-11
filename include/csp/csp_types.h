@@ -33,6 +33,7 @@ typedef enum {
 	CSP_REBOOT			= 4,   /*< Reboot, see #CSP_REBOOT_MAGIC and #CSP_REBOOT_SHUTDOWN_MAGIC */
 	CSP_BUF_FREE		= 5,   /*< Free CSP buffers */
 	CSP_UPTIME			= 6,   /*< Uptime */
+	GET_TIME			= 8,   /*< Get Time */
 } csp_service_port_t;
 
 /** Listen on all ports, primarily used with csp_bind() */

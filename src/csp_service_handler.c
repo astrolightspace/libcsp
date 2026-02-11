@@ -2,6 +2,8 @@
 
 #include <csp/csp_debug.h>
 #include <string.h>
+#include <time.h>
+// #include <stdio.h>
 
 #include <csp/csp_cmp.h>
 #include <csp/csp_hooks.h>
@@ -278,6 +280,37 @@ void csp_service_handler(csp_packet_t * packet) {
 			packet->length = sizeof(time);
 			break;
 		}
+
+        case GET_TIME: {
+            #define GET_TIME_CMD_PAYLOAD 0
+            int8_t error_code = 0;
+            const uint8_t * payload = (const uint8_t *) packet->data;
+            size_t payload_len = packet->length;
+
+            //printf("GET_TIME request with payload length: %zu\n", payload_len);
+
+            /* Expect 1-byte command */
+            if (payload_len != sizeof(uint8_t)) {
+                csp_buffer_free(packet);
+                error_code = -1; // Invalid payload length
+            }
+
+            uint8_t cmd = payload[0];
+            if (cmd != GET_TIME_CMD_PAYLOAD) {
+                csp_buffer_free(packet);
+                error_code = -2; // Invalid command
+            }
+
+            uint32_t now = (uint32_t)time(NULL);
+            // printf("Current uptime (s): %u, 0x%08x\n", now, now);
+
+            memcpy(packet->data, &cmd, sizeof(cmd));
+            memcpy(packet->data + sizeof(cmd), &error_code, sizeof(error_code));
+            memcpy(packet->data + sizeof(cmd) + sizeof(error_code), &now, sizeof(now));
+            packet->length = sizeof(cmd) + sizeof(error_code) + sizeof(now);
+
+            break;
+        }
 
 		default:
 			csp_buffer_free(packet);
