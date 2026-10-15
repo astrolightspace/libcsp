@@ -66,7 +66,7 @@ static void csp_can_log_csp_header(uint32_t id, const uint8_t * data, uint8_t dl
 		dport = (h >> 14) & 0x3Fu;
 		sport = (h >> 8) & 0x3Fu;
 		flags = h & 0xFFu;
-	} else {
+	} else if (csp_conf.version == 2) {
 		/* v2: 6-byte header = [pri|dst from CAN id] + 4 data bytes (network order). */
 		if (((id & (CFP2_BEGIN_MASK << CFP2_BEGIN_OFFSET)) == 0u) || (dlc < 4u)) {
 			return;
@@ -88,6 +88,10 @@ static void csp_can_log_csp_header(uint32_t id, const uint8_t * data, uint8_t dl
 		dport = (h >> 12) & 0x3Fu;
 		sport = (h >> 6) & 0x3Fu;
 		flags = h & 0x3Fu;
+	} else {
+		LOG_ERR("Unsupported CSP version %u; cannot decode CAN frame header",
+			csp_conf.version);
+		return;
 	}
 
 	/* Full reconstructed CSP header bytes (v2 includes the 2 bytes from the CAN id). */
