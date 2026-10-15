@@ -72,10 +72,20 @@ int csp_rtable_load(const char * rtable);
  */
 int csp_rtable_check(const char * rtable);
 
+/** Validate routes against a proposed topology without registering interfaces.
+ * Uses the same parser as load/check. No global CSP state is changed.
+ */
+int csp_rtable_check_config(const char *rtable, uint8_t version,
+                           const char *const *interface_names, size_t interface_count);
+
 #else
 inline int csp_rtable_save(char * buffer, size_t buffer_size) { return CSP_ERR_NOSYS; }
 inline int csp_rtable_load(const char * rtable) { return CSP_ERR_NOSYS; }
 inline int csp_rtable_check(const char * rtable) { return CSP_ERR_NOSYS; }
+static inline int csp_rtable_check_config(const char *rtable, uint8_t version,
+                                          const char *const *names, size_t count) {
+	return CSP_ERR_NOSYS;
+}
 #endif
 
 /**

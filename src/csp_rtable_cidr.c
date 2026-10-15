@@ -80,10 +80,10 @@ int csp_rtable_set_internal(uint16_t address, uint16_t netmask, csp_iface_t * if
 
 	/* If not, create a new one */
 	if (!entry) {
-		entry = &rtable[rtable_inptr++];
-		if (rtable_inptr > CSP_RTABLE_SIZE) {
-			rtable_inptr = CSP_RTABLE_SIZE;
+		if (rtable_inptr >= CSP_RTABLE_SIZE) {
+			return CSP_ERR_NOMEM;
 		}
+		entry = &rtable[rtable_inptr++];
 	}
 
 	/* Fill in the data */
@@ -97,6 +97,7 @@ int csp_rtable_set_internal(uint16_t address, uint16_t netmask, csp_iface_t * if
 
 void csp_rtable_free(void) {
 	memset(rtable, 0, sizeof(rtable));
+	rtable_inptr = 0;
 }
 
 void csp_rtable_clear(void) {

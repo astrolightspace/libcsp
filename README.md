@@ -66,6 +66,99 @@ The latest version of the /doc folder is compiled to HTML and hosted on:
 
   [libcsp.github.io/libcsp/](https://libcsp.github.io/libcsp/)
 
+## Zephyr interface configuration and lifecycle
+
+Applications select hardware devices and supply interface names, node addresses,
+CAN bitrates/filters, and UART parameters. The driver APIs do not read application
+settings or choose a topology. Enable the required devices and driver support in
+the application's devicetree and Kconfig.
+
+The Zephyr adapters support deferred reception so the CSP core, interface policy,
+and routing table can be ready before incoming packets are processed:
+
+1. Set `csp_conf.version` and call `csp_init()` before preparing interfaces.
+2. Prepare/register each interface using the APIs below.
+3. Set its `netmask` (prefix length) and `is_default` policy, then install routes.
+4. Start reception and run the application's CSP router/server tasks.
+5. On failure, clean up acquired interfaces in reverse order and check cleanup
+   return values before attempting another initialization.
+
+| Transport | Prepare without enabling RX | Enable RX | Cleanup |
+|---|---|---|---|
+| CAN | `csp_can_prepare_interface()` | `csp_can_start()` | `csp_can_stop()` |
+| UART KISS | `csp_kiss_prepare()` | `csp_kiss_start()` | `csp_kiss_close()` |
+| Raw UART | `csp_usart_prepare()` | `csp_usart_start()` | `csp_usart_close()` |
+
+CAN declarations are in [`can_zephyr.h`](include/csp/drivers/can_zephyr.h);
+UART/KISS declarations are in
+[`usart_zephyr.h`](include/csp/drivers/usart_zephyr.h).
+Raw UART preparation reserves the UART and callback resources but does not
+register a CSP interface. KISS preparation also registers the CSP interface.
+Only one CSP owner can use a UART device at a time.
+
+UART preparation takes a complete Zephyr `struct uart_config`: baud rate, data
+bits, stop bits, parity, and flow control. It applies this configuration before
+enabling reception, rather than relying on devicetree `current-speed`.
+Enable `CONFIG_UART_USE_RUNTIME_CONFIGURE`; the driver must support
+`uart_config_get()` and `uart_configure()`. UART cleanup restores the previous
+configuration. CAN cleanup stops the controller/RX thread and releases the
+registered interface and filter resources.
+
+Provide enough RX slots for the requested topology using
+`CONFIG_CSP_CAN_RX_THREAD_NUM` and `CONFIG_CSP_UART_RX_THREAD_NUM`.
+
+### Existing driver APIs
+
+`csp_can_open_and_add_interface()`,
+`csp_usart_open_and_add_kiss_interface()`, and `csp_usart_open()` remain available
+and retain immediate-start behavior. The deferred APIs are intended for callers
+that need to install policy and routes before reception starts.
+
+Applications using the separate csp-service module can delegate this lifecycle
+to `csp_service_init_config()` and call `csp_service_start()` after success;
+these are service-layer APIs, not libcsp APIs.
+
+## Routing table capacity and string limits
+
+The routing table has two independent limits:
+
+| Limit | Generated C macro | Zephyr Kconfig option | Default |
+|---|---|---|---|
+| Number of route entries | `CSP_RTABLE_SIZE` | `CONFIG_CSP_RTABLE_SIZE` | 10 |
+| Routing string characters, excluding the terminating null byte | `CSP_RTABLE_STRING_MAX_LEN` | `CONFIG_CSP_RTABLE_STRING_MAX_LEN` | 100 |
+
+For example, `"16/5 CAN1, 8/5 KISS, 0/0 CAN0"` contains three route entries.
+Interface names must match registered interfaces. `csp_rtable_check_config()`
+can validate text against a proposed protocol version and interface-name list
+before those interfaces are registered; `csp_rtable_check()` validates against
+the current CSP interfaces, and `csp_rtable_load()` validates and installs routes.
+See [`csp_rtable.h`](include/csp/csp_rtable.h).
+
+Configure the limits in the application's `prj.conf`:
+
+```conf
+CONFIG_CSP_USE_RTABLE=y
+CONFIG_CSP_RTABLE_SIZE=10
+CONFIG_CSP_RTABLE_STRING_MAX_LEN=256
+```
+
+The string parser rejects text exceeding the configured character limit and
+uses a stack buffer of `CSP_RTABLE_STRING_MAX_LEN + 1` bytes. Zephyr permits
+limits from 1 to 1024; account for the buffer when sizing the calling thread's
+stack. Applications can size saved route buffers with
+`CONFIG_CSP_RTABLE_STRING_MAX_LEN + 1` to share the same limit.
+
+Other build systems expose equivalent settings:
+
+| Build system | Entry count | String character limit |
+|---|---|---|
+| CMake | `-DCSP_RTABLE_SIZE=10` | `-DCSP_RTABLE_STRING_MAX_LEN=256` |
+| Meson | `-Drtable_size=10` | `-Drtable_string_max_len=256` |
+| Waf | `--with-rtable-size=10` | `--with-rtable-string-max-len=256` |
+
+Reconfigure/rebuild after changing these options; do not edit generated
+`csp/autoconfig.h` directly.
+
 ## Contributing
 
 Thank you for considering contributing to libcsp! We welcome

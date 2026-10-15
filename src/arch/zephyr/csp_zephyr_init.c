@@ -2,11 +2,16 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/init.h>
+#include <zephyr/version.h>
+#if ZEPHYR_VERSION_CODE >= ZEPHYR_VERSION(4, 0, 0)
+#include <time.h>
+#else
 #include <zephyr/posix/time.h>
+#endif
 #include <csp/csp_debug.h>
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(libcsp);
+LOG_MODULE_REGISTER(libcsp, CONFIG_LIBCSP_LOG_LEVEL);
 
 static int libcsp_zephyr_init(void)
 {

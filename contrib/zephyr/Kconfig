@@ -95,6 +95,15 @@ config CSP_RTABLE_SIZE
 	help
 	  This value specifies the number of entries in the routing
 	  table.
+
+config CSP_RTABLE_STRING_MAX_LEN
+	int "Maximum routing string length, excluding terminator"
+	range 1 1024
+	default 100
+	help
+	  Maximum number of characters accepted by the routing string parser.
+	  Applications can use this limit for saved routing string buffers.
+	  The parser uses this many bytes plus one on the calling thread's stack.
 endmenu
 
 menu "UART"
