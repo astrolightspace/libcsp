@@ -26,5 +26,6 @@ option('buffer_size', type: 'integer', value: 256, description: 'Bytes in each p
 option('buffer_count', type: 'integer', value: 15, description: 'Number of total packet buffers')
 option('rdp_max_window', type: 'integer', value: 5, description: 'Max window size for RDP')
 option('rtable_size', type: 'integer', value: 10, description: 'Number of elements in routing table')
+option('rtable_string_max_len', type: 'integer', value: 100, min: 1, max: 1024, description: 'Maximum routing string length, excluding terminator')
 
 option('fixup_v1_zmq_little_endian', type: 'boolean', value: false, description: 'Use little-endian CSP ID for ZMQ with CSPv1')

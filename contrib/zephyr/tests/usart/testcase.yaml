@@ -1,0 +1,21 @@
+tests:
+  libcsp.usart.baudrate.polling:
+    platform_allow:
+      - native_sim
+    integration_platforms:
+      - native_sim
+    extra_configs:
+      - CONFIG_UART_INTERRUPT_DRIVEN=n
+    tags:
+      - uart
+      - csp
+  libcsp.usart.baudrate.interrupt:
+    platform_allow:
+      - native_sim
+    integration_platforms:
+      - native_sim
+    extra_configs:
+      - CONFIG_UART_INTERRUPT_DRIVEN=y
+    tags:
+      - uart
+      - csp

@@ -30,6 +30,15 @@ int csp_can_open_and_add_interface(const struct device * device, const char * if
 								   uint16_t filter_addr, uint16_t filter_mask,
 								   csp_iface_t ** return_iface);
 
+/** Prepare/register CAN with the controller and RX thread stopped.
+ * Set interface policy and routes before csp_can_start().
+ */
+int csp_can_prepare_interface(const struct device *device, const char *name,
+                             uint16_t address, uint32_t bitrate,
+                             uint16_t filter_address, uint16_t filter_mask,
+                             csp_iface_t **iface);
+int csp_can_start(csp_iface_t *iface);
+
 /**
  * Set CAN RX filter based on destination address and bit mask.
  *
