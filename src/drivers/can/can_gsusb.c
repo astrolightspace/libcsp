@@ -9,6 +9,7 @@
 
 #include <csp/drivers/can_gsusb.h>
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,8 +27,6 @@
 #define usleep(x) Sleep((x) / 1000)
 #define pthread_t HANDLE
 #define pthread_create(t, a, f, d) ((*t = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)f, d, 0, NULL)) == NULL)
-#define pthread_join(t, r) WaitForSingleObject(t, INFINITE)
-#define pthread_cancel(t) TerminateThread(t, 0)
 #else
 #include <pthread.h>
 #include <unistd.h>
@@ -95,6 +94,20 @@
 /* USB transfer timeout in milliseconds */
 #define GS_USB_TIMEOUT               1000
 
+/* Number of IN transfers kept in flight. The Linux kernel gs_usb driver
+ * also keeps 10 URBs in flight. */
+#define GS_USB_RX_TRANSFERS          10
+
+/* Event loop poll interval in milliseconds. A poll timeout does not cancel
+ * the IN transfers, so no data is lost when it expires. */
+#define GS_USB_EVENT_POLL_MS         100
+
+/* Time in milliseconds to wait for the cancelled IN transfers at stop */
+#define GS_USB_STOP_TIMEOUT_MS       2000
+
+/* Consecutive RX transfer errors before a transfer is not resubmitted */
+#define GS_USB_RX_MAX_ERRORS         100
+
 #pragma pack(push, 1)
 
 /* GS_USB host frame structure */
@@ -154,17 +167,29 @@ typedef struct {
 
 #pragma pack(pop)
 
+/* Size of a classic CAN host frame (header and 8 data bytes), without timestamp.
+ * The device expects frames of exactly this size when FD mode is off. */
+#define GS_HOST_FRAME_CLASSIC_SIZE   (offsetof(gs_host_frame_t, data) + CAN_MAX_DLEN)
+
 /* CAN interface context */
 typedef struct {
     char name[CSP_IFLIST_NAME_MAX + 1];
     csp_iface_t iface;
     csp_can_interface_data_t ifdata;
     pthread_t rx_thread;
+    int rx_thread_started;
     libusb_device_handle *dev_handle;
     libusb_context *usb_ctx;
     uint8_t channel;
     volatile int running;
     gs_device_bt_const_t bt_const;
+    /* Asynchronous IN transfers. The callbacks run in the thread that handles
+     * libusb events. libusb lets only one thread handle events at a time, so
+     * the callbacks do not run concurrently. */
+    struct libusb_transfer *rx_transfers[GS_USB_RX_TRANSFERS];
+    gs_host_frame_t rx_buffers[GS_USB_RX_TRANSFERS];
+    volatile int rx_active;     /* Number of IN transfers in flight */
+    int rx_errors;              /* Consecutive IN transfer errors */
 } gsusb_context_t;
 
 /* Forward declarations */
@@ -175,6 +200,18 @@ static int csp_can_gsusb_tx_frame(void *driver_data, uint32_t id, const uint8_t 
  */
 static void gsusb_free(gsusb_context_t *ctx) {
     if (ctx) {
+        if (ctx->rx_active > 0) {
+            /* Transfers are still in flight. Freeing them or the context is
+             * not safe, so leak the resources. */
+            csp_print("GS_USB[%s]: %d RX transfers still active, resources not freed\n",
+                      ctx->name, ctx->rx_active);
+            return;
+        }
+        for (int i = 0; i < GS_USB_RX_TRANSFERS; i++) {
+            if (ctx->rx_transfers[i]) {
+                libusb_free_transfer(ctx->rx_transfers[i]);
+            }
+        }
         if (ctx->dev_handle) {
             libusb_release_interface(ctx->dev_handle, 0);
             libusb_close(ctx->dev_handle);
@@ -280,7 +317,144 @@ static int gsusb_control_in(gsusb_context_t *ctx, uint8_t request, uint16_t chan
 }
 
 /**
- * RX thread function
+ * Decode one host frame from the device and forward it to CSP
+ */
+static void gsusb_rx_frame(gsusb_context_t *ctx, const gs_host_frame_t *frame, int length) {
+    if (length < (int)offsetof(gs_host_frame_t, data)) {  /* Minimum frame size */
+        return;
+    }
+
+    /* Check channel */
+    if (frame->channel != ctx->channel) {
+        return;
+    }
+
+    /* Skip echo frames (TX confirmation) */
+    if (frame->echo_id != 0xFFFFFFFF) {
+        return;
+    }
+
+    /* Extract CAN ID flags */
+    uint32_t can_id = frame->can_id;
+    bool is_extended = (can_id & 0x80000000) != 0;  /* IDE flag */
+    bool is_rtr = (can_id & 0x40000000) != 0;       /* RTR flag */
+    bool is_error = (can_id & 0x20000000) != 0;     /* ERR flag */
+
+    /* Skip error and RTR frames */
+    if (is_error || is_rtr) {
+        return;
+    }
+
+    /* CSP uses extended frames */
+    if (!is_extended) {
+        return;
+    }
+
+    if (frame->flags & GS_CAN_FLAG_OVERFLOW) {
+        csp_print("GS_USB[%s]: Device RX overflow, frames lost\n", ctx->name);
+    }
+
+    /* Mask out flags */
+    can_id &= 0x1FFFFFFF;
+
+    /* Validate DLC */
+    uint8_t dlc = frame->can_dlc;
+    if (dlc > CAN_MAX_DLEN) {
+        dlc = CAN_MAX_DLEN;
+    }
+
+    /* Forward to CSP */
+    csp_can_rx(&ctx->iface, can_id, frame->data, dlc, NULL);
+}
+
+/**
+ * Completion callback for the IN transfers.
+ *
+ * The transfer is resubmitted at once, so the device always has IN transfers
+ * to complete. The callback runs in the thread that handles libusb events:
+ * the RX thread, or a TX call that waits for its bulk transfer.
+ */
+static void LIBUSB_CALL gsusb_rx_callback(struct libusb_transfer *transfer) {
+    gsusb_context_t *ctx = (gsusb_context_t *)transfer->user_data;
+
+    switch (transfer->status) {
+    case LIBUSB_TRANSFER_COMPLETED:
+        ctx->rx_errors = 0;
+        gsusb_rx_frame(ctx, (const gs_host_frame_t *)transfer->buffer, transfer->actual_length);
+        break;
+
+    case LIBUSB_TRANSFER_CANCELLED:
+        ctx->rx_active--;
+        return;
+
+    case LIBUSB_TRANSFER_NO_DEVICE:
+        if (ctx->running) {
+            csp_print("GS_USB[%s]: Device disconnected\n", ctx->name);
+        }
+        ctx->rx_active--;
+        return;
+
+    default:
+        if (ctx->running) {
+            csp_print("GS_USB[%s]: USB read error: %s\n", ctx->name,
+                      libusb_error_name(transfer->status));
+        }
+        if (++ctx->rx_errors >= GS_USB_RX_MAX_ERRORS) {
+            csp_print("GS_USB[%s]: Too many USB read errors, RX transfer stopped\n", ctx->name);
+            ctx->rx_active--;
+            return;
+        }
+        break;
+    }
+
+    if (ctx->running) {
+        int ret = libusb_submit_transfer(transfer);
+        if (ret == LIBUSB_SUCCESS) {
+            return;
+        }
+        csp_print("GS_USB[%s]: Could not resubmit RX transfer: %s\n", ctx->name, libusb_error_name(ret));
+    }
+    ctx->rx_active--;
+}
+
+/**
+ * Allocate and submit the IN transfers.
+ *
+ * @return Number of submitted transfers.
+ */
+static int gsusb_rx_submit_all(gsusb_context_t *ctx) {
+    for (int i = 0; i < GS_USB_RX_TRANSFERS; i++) {
+        struct libusb_transfer *transfer = libusb_alloc_transfer(0);
+        if (transfer == NULL) {
+            break;
+        }
+        ctx->rx_transfers[i] = transfer;
+        libusb_fill_bulk_transfer(transfer, ctx->dev_handle, GS_USB_ENDPOINT_IN,
+                                  (unsigned char *)&ctx->rx_buffers[i], sizeof(ctx->rx_buffers[i]),
+                                  gsusb_rx_callback, ctx, 0);  /* No timeout */
+        int ret = libusb_submit_transfer(transfer);
+        if (ret != LIBUSB_SUCCESS) {
+            csp_print("GS_USB[%s]: Could not submit RX transfer: %s\n", ctx->name, libusb_error_name(ret));
+            break;
+        }
+        ctx->rx_active++;
+    }
+    return ctx->rx_active;
+}
+
+/**
+ * Cancel all IN transfers. A transfer that is not in flight is ignored.
+ */
+static void gsusb_rx_cancel_all(gsusb_context_t *ctx) {
+    for (int i = 0; i < GS_USB_RX_TRANSFERS; i++) {
+        if (ctx->rx_transfers[i]) {
+            libusb_cancel_transfer(ctx->rx_transfers[i]);
+        }
+    }
+}
+
+/**
+ * RX thread function: handle libusb events until all IN transfers are done.
  */
 #ifdef _WIN32
 static DWORD WINAPI gsusb_rx_thread(void *arg) {
@@ -288,73 +462,36 @@ static DWORD WINAPI gsusb_rx_thread(void *arg) {
 static void *gsusb_rx_thread(void *arg) {
 #endif
     gsusb_context_t *ctx = (gsusb_context_t *)arg;
-    gs_host_frame_t frame;
-    int transferred;
+    int stop_wait_ms = 0;
 
-    while (ctx->running) {
-        int ret = libusb_bulk_transfer(ctx->dev_handle, GS_USB_ENDPOINT_IN,
-                                       (unsigned char *)&frame, sizeof(frame),
-                                       &transferred, 100);  /* 100ms timeout for responsive shutdown */
-
-        if (ret == LIBUSB_ERROR_TIMEOUT) {
-            continue;
-        }
-
-        if (ret != LIBUSB_SUCCESS) {
-            if (ctx->running) {
-                csp_print("GS_USB[%s]: USB read error: %s\n", ctx->name, libusb_error_name(ret));
-                usleep(100000);  /* 100ms backoff on error */
+    while (ctx->rx_active > 0) {
+        if (!ctx->running) {
+            /* Cancel in each loop: a TX thread can resubmit a transfer while
+             * the stop request occurs. */
+            gsusb_rx_cancel_all(ctx);
+            if (stop_wait_ms >= GS_USB_STOP_TIMEOUT_MS) {
+                csp_print("GS_USB[%s]: Timeout while RX transfers stop\n", ctx->name);
+                break;
             }
-            continue;
+            stop_wait_ms += GS_USB_EVENT_POLL_MS;
         }
 
-        if (transferred < 12) {  /* Minimum frame size */
-            continue;
+        struct timeval tv = { 0, GS_USB_EVENT_POLL_MS * 1000 };
+        int ret = libusb_handle_events_timeout_completed(ctx->usb_ctx, &tv, NULL);
+        if (ret != LIBUSB_SUCCESS && ret != LIBUSB_ERROR_INTERRUPTED) {
+            csp_print("GS_USB[%s]: USB event error: %s\n", ctx->name, libusb_error_name(ret));
+            usleep(100000);  /* 100ms backoff on error */
         }
+    }
 
-        /* Check channel */
-        if (frame.channel != ctx->channel) {
-            continue;
-        }
-
-        /* Skip echo frames (TX confirmation) */
-        if (frame.echo_id != 0xFFFFFFFF) {
-            continue;
-        }
-
-        /* Extract CAN ID flags */
-        uint32_t can_id = frame.can_id;
-        bool is_extended = (can_id & 0x80000000) != 0;  /* IDE flag */
-        bool is_rtr = (can_id & 0x40000000) != 0;       /* RTR flag */
-        bool is_error = (can_id & 0x20000000) != 0;     /* ERR flag */
-
-        /* Skip error and RTR frames */
-        if (is_error || is_rtr) {
-            continue;
-        }
-
-        /* CSP uses extended frames */
-        if (!is_extended) {
-            continue;
-        }
-
-        /* Mask out flags */
-        can_id &= 0x1FFFFFFF;
-
-        /* Validate DLC */
-        uint8_t dlc = frame.can_dlc;
-        if (dlc > CAN_MAX_DLEN) {
-            dlc = CAN_MAX_DLEN;
-        }
-
-        /* Forward to CSP */
-        csp_can_rx(&ctx->iface, can_id, frame.data, dlc, NULL);
+    if (ctx->running) {
+        csp_print("GS_USB[%s]: All RX transfers stopped, no more frames are received\n", ctx->name);
     }
 
 #ifdef _WIN32
     return 0;
 #else
-    pthread_exit(NULL);
+    return NULL;
 #endif
 }
 
@@ -377,9 +514,12 @@ static int csp_can_gsusb_tx_frame(void *driver_data, uint32_t id, const uint8_t 
     frame.flags = 0;
     memcpy(frame.data, data, dlc);
 
+    /* Send only the classic frame size. The full structure has room for
+     * 64 data bytes and spans two USB packets, which the device does not
+     * expect when FD mode is off. */
     int transferred;
     int ret = libusb_bulk_transfer(ctx->dev_handle, GS_USB_ENDPOINT_OUT,
-                                   (unsigned char *)&frame, sizeof(frame),
+                                   (unsigned char *)&frame, GS_HOST_FRAME_CLASSIC_SIZE,
                                    &transferred, GS_USB_TIMEOUT);
 
     if (ret != LIBUSB_SUCCESS) {
@@ -546,6 +686,14 @@ int csp_can_gsusb_open_and_add_interface(const csp_can_gsusb_conf_t *conf,
         return CSP_ERR_INVAL;
     }
 
+    /* Reset the channel before configuration. A previous session can leave
+     * the channel started, and the device ignores bit timing changes then. */
+    gs_device_mode_t reset_mode = { .mode = GS_CAN_MODE_RESET, .flags = 0 };
+    ret = gsusb_control_out(ctx, GS_USB_BREQ_MODE, ctx->channel, &reset_mode, sizeof(reset_mode));
+    if (ret != CSP_ERR_NONE) {
+        csp_print("GS_USB[%s]: Could not reset channel, continuing\n", ctx->name);
+    }
+
     /* Get bit timing constants */
     ret = gsusb_control_in(ctx, GS_USB_BREQ_BT_CONST, ctx->channel,
                            &ctx->bt_const, sizeof(ctx->bt_const));
@@ -599,14 +747,28 @@ int csp_can_gsusb_open_and_add_interface(const csp_can_gsusb_conf_t *conf,
         return ret;
     }
 
-    /* Start RX thread */
+    /* Submit the IN transfers, then start the RX thread that handles them */
     ctx->running = 1;
+    if (gsusb_rx_submit_all(ctx) == 0) {
+        csp_print("GS_USB[%s]: Could not submit any RX transfer\n", ctx->name);
+        ctx->running = 0;
+        /* Note: Can't remove interface from CSP once added */
+        return CSP_ERR_DRIVER;
+    }
+    if (ctx->rx_active < GS_USB_RX_TRANSFERS) {
+        csp_print("GS_USB[%s]: Only %d of %d RX transfers submitted\n",
+                  ctx->name, ctx->rx_active, GS_USB_RX_TRANSFERS);
+    }
+
     if (pthread_create(&ctx->rx_thread, NULL, gsusb_rx_thread, ctx) != 0) {
         csp_print("GS_USB[%s]: Could not create RX thread\n", ctx->name);
         ctx->running = 0;
+        /* Cancel the submitted transfers and wait for them in this thread */
+        gsusb_rx_thread(ctx);
         /* Note: Can't remove interface from CSP once added */
         return CSP_ERR_NOMEM;
     }
+    ctx->rx_thread_started = 1;
 
     csp_print("GS_USB[%s]: Interface started successfully\n", ctx->name);
 
@@ -620,17 +782,20 @@ int csp_can_gsusb_open_and_add_interface(const csp_can_gsusb_conf_t *conf,
 int csp_can_gsusb_stop(csp_iface_t *iface) {
     gsusb_context_t *ctx = (gsusb_context_t *)iface->driver_data;
 
-    /* Signal RX thread to stop */
+    /* Signal RX thread to stop. The thread cancels the IN transfers and
+     * returns when they are done, or after GS_USB_STOP_TIMEOUT_MS. */
     ctx->running = 0;
 
     /* Wait for thread to finish */
+    if (ctx->rx_thread_started) {
 #ifdef _WIN32
-    WaitForSingleObject(ctx->rx_thread, 5000);
-    CloseHandle(ctx->rx_thread);
+        WaitForSingleObject(ctx->rx_thread, INFINITE);
+        CloseHandle(ctx->rx_thread);
 #else
-    pthread_cancel(ctx->rx_thread);
-    pthread_join(ctx->rx_thread, NULL);
+        pthread_join(ctx->rx_thread, NULL);
 #endif
+        ctx->rx_thread_started = 0;
+    }
 
     /* Stop CAN interface */
     gs_device_mode_t mode;
