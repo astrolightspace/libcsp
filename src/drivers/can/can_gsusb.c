@@ -94,9 +94,11 @@
 /* USB transfer timeout in milliseconds */
 #define GS_USB_TIMEOUT               1000
 
-/* Number of IN transfers kept in flight. The Linux kernel gs_usb driver
- * also keeps 10 URBs in flight. */
-#define GS_USB_RX_TRANSFERS          10
+/* Number of IN transfers kept in flight. The transfers complete in the
+ * kernel also when the RX thread does not run. One CSP packet of 256 bytes
+ * is approximately 40 CAN frames, so 64 transfers hold a full packet while
+ * the scheduler delays the RX thread. Each transfer uses 76 bytes. */
+#define GS_USB_RX_TRANSFERS          64
 
 /* Event loop poll interval in milliseconds. A poll timeout does not cancel
  * the IN transfers, so no data is lost when it expires. */
@@ -769,6 +771,17 @@ int csp_can_gsusb_open_and_add_interface(const csp_can_gsusb_conf_t *conf,
         return CSP_ERR_NOMEM;
     }
     ctx->rx_thread_started = 1;
+
+#ifdef _WIN32
+    /* The RX thread must resubmit the IN transfers before they are all full.
+     * Busy threads of normal priority can delay a thread of normal priority
+     * for a full scheduler time slice. The thread waits for libusb events
+     * most of the time, so the higher priority takes almost no CPU time. */
+    if (!SetThreadPriority(ctx->rx_thread, THREAD_PRIORITY_HIGHEST)) {
+        csp_print("GS_USB[%s]: Could not set RX thread priority: %lu\n",
+                  ctx->name, (unsigned long)GetLastError());
+    }
+#endif
 
     csp_print("GS_USB[%s]: Interface started successfully\n", ctx->name);
 
